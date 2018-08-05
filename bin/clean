@@ -1,0 +1,7 @@
+#!/usr/bin/sh
+
+rm db/scorebot.sqlite3
+find `pwd` -name migr\* -exec rm -rf {} \; 2> /dev/null
+find `pwd` -name \*pycach\* -exec rm -rf {} \; 2> /dev/null
+
+# EOF
