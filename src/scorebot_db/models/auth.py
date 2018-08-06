@@ -108,4 +108,15 @@ class Authorization(Model):
         else:
             self.access = (self.access & (~(1 << bit)))
 
-# EOF
+    def permission_strings(self):
+        """Return a list of permissions this token has."""
+        results = []
+        for k, v in AUTHORIZATION_NAMES.items():
+            if self[v]:
+                results.append(k)
+        return results
+
+    @property
+    def uuid(self):
+        """Return token UUID."""
+        return self.token.uid
