@@ -12,7 +12,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from scorebot import General, Authentication, Jobs, HTTP_GET, HTTP_POST
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
-from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, Port, Game
+from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, Port, Game, Service, Content
 from scorebot.constants import JOB_MESSAGE_NO_HOSTS, MESSAGE_INVALID_METHOD, MESSAGE_MISSING_FIELD, \
                                FLAG_MESSAGE_STOLEN, FLAG_MESSAGE_NOT_EXIST, FLAG_MESSAGE_HINT, TEAM_MESSAGE_TOKEN, \
                                TEAM_MESSAGE_PORT_LIST, GAME_RUNNING
@@ -175,4 +175,90 @@ def api_token_check(request):
 	    }
     return JsonResponse(resp)
 
+
+@csrf_exempt
+@authenticate('__SYS_STORE')
+def api_new_resource(request):
+    """Create a new monitored resource.
+
+	Requires a JSON post with the following fields:
+
+	team: A valid game team id
+	host: A dictionary of the host, containing:
+	    name: Display name for the host.
+	    fqdn: FQDN for the host to be scored.
+	services: An array of dictionary definition of the services on the host, containing:
+	    port: Integer port for the service
+	    name: String name for the service
+	    bonus: Boolean if service is bonus (optional)
+	    value: Integer scoreable value (optional)
+	    protocol: 'tcp', 'udp', 'icmp' (optional, default 'tcp')
+	    content: string or dictionary to store as scorebot_grid.Content (optional)
+    """
+    if request.method != METHOD_POST:
+	return HttpResponseBadRequest(content='{"result": "SBE API: Not a supported method type!"}')
+    try:
+	decoded_data = request.body.decode('UTF-8')
+    except UnicodeDecodeError:
+	api_error('NEW_RESOURCE', 'Data submitted is not encoded properly!', request)
+	return HttpResponseBadRequest(content='{"result": "SBE API: Incorrect encoding, please use UTF-8!"}')
+    try:
+	json_data = json.loads(decoded_data)
+    except json.decoder.JSONDecodeError:
+	api_error('NEW_RESOURCE', 'Data submitted is not in correct JSON format!', request)
+	return HttpResponseBadRequest(content='{"result": "SBE API: Not in a valid JSON format!"]')
+    try:
+	team = PlayerTeam.objects.get(store=int(json_data['team']), game__status=CONST_GAME_GAME_RUNNING)
+    except (ValueError, ObjectDoesNotExist, MultipleObjectsReturned):
+	api_error('NEW_RESOURCE', 'Attempted to use an invalid Team ID "%s"!' % str(team_id), request)
+	return HttpResponseNotFound('{"result": "SBE API: Invalid Team ID!"}')
+    new_host = Host()
+    try:
+	new_host.fqdn = json_data['host']['fqdn']
+	new_host.name = json_data['host']['name']
+	new_host.team = team
+    except KeyError:
+	api_error('NEW_RESOURCE', 'Invalid JSON for new host!')
+	return HttpResponseBadRequest(content='{"result": "SBE API: Invalid JSON for new host!')
+    if 'services' not in json_data:
+	api_error('NEW_RESOURCE', 'Invalid JSON for new host!')
+	return HttpResponseBadRequest(content='{"result": "SBE API: Invalid JSON for new host!')
+    services = []
+    for svc_data in json_data['services']:
+	new_service = Service()
+	try:
+		new_service.port = int(svc_data['port'])
+		new_service.name = svc_data['name']
+		new_service.bonus = svc_data.get('bonus', False)
+		new_service.value = svc_data.get('value', new_service.value)
+		protocol = svc_data.get('protocol', 'tcp')
+		found = False
+		for k, v in SERVICE_PROTOCOLS:
+		    if v == protocol:
+			new_service.protocol = k
+			found = True
+			break
+		if not found:
+		    raise ValueError('Invalid protocol: ' + protocol)
+	except (KeyError, ValueError):
+	    api_error('NEW_RESOURCE', 'Invalid JSON for new service!')
+	    return HttpResponseBadRequest(content='{"result": "SBE API: Invalid JSON for new service!')
+	if 'content' in svc_data:
+	    try:
+		content = svc_data['content']
+		if isinstance(content, dict):
+		    content = dumps(content)
+		new_service.content = Content(data=content)
+	    except (KeyError, ValueError):
+		api_error('NEW_RESOURCE', 'Invalid JSON for new service!')
+		return HttpResponseBadRequest(content='{"result": "SBE API: Invalid JSON for new service!')
+	services.append(new_service)
+    # Save all the new data
+    new_host.save()
+    for new_service in services:
+	if new_service.content:
+	    new_service.content.save()
+	new_service.host = new_host
+	new_service.save()
+    return HttpResponse(status=200, content='{result: "Created"}')
 # EOF
