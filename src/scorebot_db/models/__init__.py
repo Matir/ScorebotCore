@@ -8,7 +8,7 @@
 
 from django.forms import ModelForm
 from importlib import import_module
-from scorebot import Models, Default
+from scorebot import Models, General
 from inspect import getmembers, isclass
 from django.db.models.base import ModelBase
 from django.contrib.admin import site, ModelAdmin
@@ -27,7 +27,6 @@ for member in getmembers(import_module(__name__), isclass):
         admin = None
         hidden = False
         Models[member[0].lower()] = member[1]
-        Default.debug('Model "%s" loaded..' % member[0])
         try:
             hidden = bool(getattr(member[1], 'hidden'))
         except AttributeError:
@@ -42,8 +41,10 @@ for member in getmembers(import_module(__name__), isclass):
                 admin = None
         if not member[1]._meta.abstract and not hidden:
             site.register(member[1], admin_class=admin)
+            General.debug('Scorebot Model "%s" loaded with Administrative Options.' % member[0])
+        else:
+            General.debug('Scorebot Model "%s" loaded.' % member[0])
         del admin
         del hidden
-
 
 # EOF
