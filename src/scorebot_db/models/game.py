@@ -11,7 +11,7 @@ from random import choice
 from scorebot.util import new, get
 from django.utils.timezone import now
 from json import loads, JSONDecodeError
-from scorebot import Events, Default, Jobs, Auth
+from scorebot import Events, General, Jobs, Authentication
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from django.http import HttpResponseForbidden, HttpResponseBadRequest, HttpResponse
 from scorebot.constants import GAME_MODES, GAME_STATUS, GAME_SETTING_DEFAULT, GAME_RUNNING, JOB_MESSAGE_NO_MONTIOR, \
@@ -99,7 +99,7 @@ class JobManager(Manager):
                         ))
                         return HttpResponseBadRequest(content=JOB_MESSAGE_INVALID_JOB)
                     Jobs.error('AssignedMonitor "%s": Submitted Job "%d" for processing.' % (monitor.name, job.id))
-                    Default.debug('AssignedMonitor "%s": Submitted Job "%d" for processing.' % (monitor.name, job.id))
+                    General.debug('AssignedMonitor "%s": Submitted Job "%d" for processing.' % (monitor.name, job.id))
                     return job.process_job(monitor, job_json['host'])
                 except (KeyError, TypeError, ValueError, ObjectDoesNotExist, MultipleObjectsReturned) as err:
                     Jobs.error('AssignedMonitor "%s": Attempted to submit a Job that does not exist or invalid! %s' % (
@@ -133,7 +133,7 @@ class PortManager(Manager):
             if number <= 0:
                 raise ValueError()
         except ValueError:
-            Default.error('Team "%s" attempted to open port "%s" which is not a valid integer!' % (
+            General.error('Team "%s" attempted to open port "%s" which is not a valid integer!' % (
                 team.get_path(), str(port)
             ))
             return HttpResponseBadRequest(content=TEAM_MESSAGE_PORT_INVALID)
@@ -148,7 +148,7 @@ class PortManager(Manager):
         openport.save()
         team.game.ports.add(openport)
         team.game.save()
-        Default.info('Team "%s" attempted to opened Beacon Port "%d"!' % (team.get_path(), number))
+        General.info('Team "%s" attempted to opened Beacon Port "%d"!' % (team.get_path(), number))
         del openport
         return HttpResponse(status=201, content=TEAM_MESSAGE_PORT.format(port=port))
 
@@ -166,14 +166,14 @@ class MonitorManahger(Manager):
         try:
             monitor = get('Monitor').objects.get(token=token)
         except ObjectDoesNotExist:
-            Auth.error('[%s] Attempted to access the jobs interface without being assigned a Monitor Token!' % ip)
+            Authentication.error('[%s] Attempted to access the jobs interface without being assigned a Monitor Token!' % ip)
             return None, None, HttpResponseForbidden(content=JOB_MESSAGE_NOT_MONTIOR)
         except MultipleObjectsReturned:
-            Auth.error('[%s] Attempted to access the jobs interface with an improper Monitor Token!' % ip)
+            Authentication.error('[%s] Attempted to access the jobs interface with an improper Monitor Token!' % ip)
             return None, None, HttpResponseForbidden(content=JOB_MESSAGE_NO_MONTIOR)
         assigned = self.filter(monitor=monitor, game__status=GAME_RUNNING)
         if len(assigned) == 0:
-            Auth.error('[%s] Monitor "%s" is not assigned to any running Games!' % (ip, monitor.name))
+            Authentication.error('[%s] Monitor "%s" is not assigned to any running Games!' % (ip, monitor.name))
             return None, None, HttpResponseForbidden(content=JOB_MESSAGE_NO_GAMES)
         return assigned, monitor, None
 
@@ -342,9 +342,9 @@ class Game(Model):
     mode = PositiveIntegerField('Game Mode', default=0, choices=GAME_MODES)
     status = PositiveIntegerField('Game Status', default=0, choices=GAME_STATUS)
     settings = ForeignKey('scorebot_db.Settings', on_delete=SET_NULL, null=True, blank=True, related_name='games')
-    goldteam = OneToOneField('scorebot_db.SystemTeam', null=True, blank=True, editable=False, on_delete=SET_NULL,
+    goldteam = OneToOneField('scorebot_db.Team', null=True, blank=True, editable=False, on_delete=SET_NULL,
                              related_name='gold')
-    grayteam = OneToOneField('scorebot_db.ScoringTeam', null=True, blank=True, editable=False, on_delete=SET_NULL,
+    grayteam = OneToOneField('scorebot_db.ScoreTeam', null=True, blank=True, editable=False, on_delete=SET_NULL,
                              related_name='gray')
 
     def __str__(self):
@@ -385,7 +385,7 @@ class Game(Model):
             'status': self.get_status_display(),
             'end': (self.end.isoformat() if self.end is not None else None),
             'start': (self.start.isoformat() if self.start is not None else None),
-            'teams': [team.get_json() for team in get('PlayingTeam').objects.filter(game=self)]
+            'teams': [team.get_json() for team in get('PlayerTeam').objects.filter(game=self)]
         }
 
     def start_game(self):
@@ -393,7 +393,7 @@ class Game(Model):
         self.start = now()
         self.save()
         Events.info('Game "%s" was started!' % self.name)
-        Default.info('Game "%s" was started!' % self.name)
+        General.info('Game "%s" was started!' % self.name)
         self.event('Game %s has been started!' % self.name)
 
     def get_team_list(self):
@@ -412,7 +412,7 @@ class Game(Model):
         Events.debug('Event occured "%s".' % message)
 
     def get_setting(self, name):
-        Default.error('Setting: "%s" requested!' % name)
+        General.error('Setting: "%s" requested!' % name)
         if self.settings is not None:
             try:
                 return getattr(self.settings, name)
@@ -423,14 +423,14 @@ class Game(Model):
     def save(self, *args, **kwargs):
         Model.save(self, *args, **kwargs)
         if self.goldteam is None:
-            goldteam = new('SystemTeam', False)
+            goldteam = new('Team', False)
             goldteam.game = self
             goldteam.name = 'Gold Team'
             goldteam.save()
             self.goldteam = goldteam
             Model.save(self, *args, **kwargs)
         if self.grayteam is None:
-            grayteam = new('ScoringTeam', False)
+            grayteam = new('ScoreTeam', False)
             grayteam.game = self
             grayteam.name = 'Gray Team'
             grayteam.save()
@@ -443,7 +443,7 @@ class Game(Model):
                 'name': escape(self.name),
                 'message': 'This is Scorebot',
                 'mode': self.mode,
-                'teams': [team.get_scoreboard(old) for team in get('PlayinTeam').objects.filter(game=self)],
+                'teams': [team.get_scoreboard(old) for team in get('PlayerTeam').objects.filter(game=self)],
                 'events': [],
                 'credit': ''
             }
@@ -495,7 +495,7 @@ class Settings(Model):
     beacon_score = PositiveSmallIntegerField('Beacon Scoring Value', default=300)
     beacon_time = PositiveSmallIntegerField('Beacon Timeout (seconds)', default=300)
     job_timeout = PositiveSmallIntegerField('Unfinished Job Timeout (seconds)', default=300)
-    host_ping = PositiveSmallIntegerField('Default Host Ping Tolerance Percentage', default=100)
+    host_ping = PositiveSmallIntegerField('General Host Ping Tolerance Percentage', default=100)
     job_cleanup_time = PositiveSmallIntegerField('Finished Job Cleanup Time (seconds)', default=900)
 
     def __str__(self):
