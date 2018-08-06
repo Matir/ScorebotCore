@@ -8,6 +8,7 @@
 from random import choice
 from json import dumps  # , loads
 from scorebot.util import authenticate, ip
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from scorebot import General, Authentication, Jobs, HTTP_GET, HTTP_POST
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
@@ -161,5 +162,17 @@ def scoreboard(request, gid):
         return HttpResponse(status=200, content=dumps(game.get_scoreboard(True)))
     return HttpResponseBadRequest(content=MESSAGE_INVALID_METHOD)
 
+
+@authenticate()
+def api_token_check(request):
+    try:
+	token = request.auth
+    except AttributeError:
+	return HttpResponseForbidden(content='SBE API: No authentication!')
+    resp = {
+	    'token': str(token.uuid),
+	    'permissions': token.permission_strings(),
+	    }
+    return JsonResponse(resp)
 
 # EOF
