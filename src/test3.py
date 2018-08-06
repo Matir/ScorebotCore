@@ -18,5 +18,8 @@ from scorebot_db import models
 from scorebot.constants import SERVICE_PROTOCOLS
 
 
-for t in models.ScoringTeam.objects.all():
-    print('%s\n%s' % (t.get_name(), dumps(t.stack.get_json_stack(), indent=4)))
+#for t in models.ScoringTeam.objects.all():
+#    print('%s\n%s' % (t.get_name(), dumps(t.stack.get_json_stack(), indent=4)))
+print(dir(models.Game))
+
+import scorebot_api.urls

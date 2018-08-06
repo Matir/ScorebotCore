@@ -5,10 +5,12 @@
 #
 # Scorebot Secondary Constants
 
-HOST_VALUE_DEFAULT = 100
-FLAG_VALUE_DEFAULT = 100
-SERVICE_VALUE_DEFAULT = 100
-CONTENT_VALUE_DEFAULT = 100
+HOST_IP = '127.0.0.1'
+HOST_VALUE = 100
+FLAG_VALUE = 100
+SERVICE_VALUE = 100
+CONTENT_VALUE = 100
+
 
 GAME_STATUS = (
     (0, 'Stopped'),
@@ -57,8 +59,39 @@ AUTHORIZATION_NAMES = {
     'MONITOR': 1
 }
 
+SCORE_SUBCLASS = (
+    (0, 'Transaction'),
+    (1, 'Payment'),
+    (2, 'Transfer'),
+    (3, 'Purchase'),
+    (4, 'Correction'),
+    (5, 'PaymentHealth'),
+    (6, 'TransferResult'),
+    (7, 'TransactionFlag'),
+    (8, 'TransactionBeacon')
+)
+SCORE_SUBCLASS_TRANSACTION = 0
+SCORE_SUBCLASS_PAYMENT = 1
+SCORE_SUBCLASS_TRANSFER = 2
+SCORE_SUBCLASS_PURCHASE = 3
+SCORE_SUBCLASS_CORRECTION = 4
+SCORE_SUBCLASS_PAYMENTHEALTH = 5
+SCORE_SUBCLASS_TRANSFERRESULT = 6
+SCORE_SUBCLASS_TRANSACTIONFLAG = 7
+SCORE_SUBCLASS_TRANSACTIONBEACON = 8
+
+TEAM_SUBCLASS = (
+    (0, 'Team'),
+    (1, 'ScoreTeam'),
+    (2, 'PlayerTeam')
+)
+TEAM_TOKEN_DAYS = 10
+TEAM_SUBCLASS_TEAM = 0
+TEAM_SUBCLASS_SCORETEAM = 1
+TEAM_SUBCLASS_PLAYERTEAM = 2
 TEAM_DEFAULT_FIELD = 'token'
 TEAM_DEFAULT_TOKEN_DAYS = 10
+TEAM_DEFAULT_LOGO = 'default.png'
 
 FLAG_MESSAGE_HINT = '{{"result": "\'{hint}\'"}}'
 FLAG_MESSAGE_NOT_EXIST = '{"result": "SBE4: Flag does not exist!"}'

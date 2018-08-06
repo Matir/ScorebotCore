@@ -23,7 +23,7 @@ def convert_game(data):
     game.name = data['game_name']
     game.save()
     #
-    red = models.PlayingTeam()
+    red = models.PlayerTeam()
     red.name = 'Redcell'
     red.offensive = True
     red.color = 16711686
@@ -36,7 +36,7 @@ def convert_game(data):
         blue_dns.ip = blue['dns']
         blue_dns.save()
         #
-        blue_team = models.PlayingTeam()
+        blue_team = models.PlayerTeam()
         blue_team.game = game
         blue_team.name = blue['name']
         blue_team.save()
