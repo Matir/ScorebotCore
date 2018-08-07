@@ -12,7 +12,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from scorebot import General, Authentication, Jobs, HTTP_GET, HTTP_POST
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
-from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, Port, Game, Service, Content, Purchase
+from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, \
+                               Port, Game, Service, Content, Purchase, Item
 from scorebot.constants import JOB_MESSAGE_NO_HOSTS, MESSAGE_INVALID_METHOD, MESSAGE_MISSING_FIELD, \
                                FLAG_MESSAGE_STOLEN, FLAG_MESSAGE_NOT_EXIST, FLAG_MESSAGE_HINT, TEAM_MESSAGE_TOKEN, \
                                TEAM_MESSAGE_PORT_LIST, GAME_RUNNING
@@ -150,27 +151,7 @@ def purchase(request, team_id=None):
     """Run a purchase.
 
     """
-    if request.method == METHOD_GET:
-	api_debug('STORE', 'Requesting the exchange rate for Team "%s"' % team_id, request)
-	if team_id is None:
-	    api_error('STORE', 'Attempted to use Null Team ID!', request)
-	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
-	try:
-	    team = PlayerTeam.objects.get(store=int(team_id), game__status=GAME_RUNNING)
-	except ValueError:
-	    api_error('STORE', 'Attempted to use an invalid Team ID "%s"!' % str(team_id), request)
-	    return HttpResponseNotFound('{"result": "SBE API: Invalid Team ID!"}')
-	except ObjectDoesNotExist:
-	    api_error('STORE', 'Attempted to use an non-existent Team ID "%s"!' % str(team_id), request)
-	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
-	except MultipleObjectsReturned:
-	    api_error('STORE', 'Attempted to use a Team ID which returned multiple Teams!', request)
-	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
-	rate = float(team.game.get_option('score_exchange_rate'))/100.0
-	api_debug('STORE', 'The exchange rate for Team "%s" is "%.2f"!' % (team.get_canonical_name(), rate),
-		    request)
-	return JsonResponse({'rate':rate})
-    elif request.method == METHOD_POST:
+    if request.method == METHOD_POST:
 	try:
 	    decoded_data = request.body.decode('UTF-8')
 	except UnicodeDecodeError:
@@ -199,24 +180,26 @@ def purchase(request, team_id=None):
 	if not isinstance(json_data['order'], list):
 	    api_error('STORE', 'Data submitted is missing the "order" array!', request)
 	    return HttpResponseBadRequest(content='{"result": "SBE API: Not in valid JSON format!"}')
+	purchase = Purchase()
+	purchase.source = team
+	purchase.destination = team.game.gold
+	purchase.value = 0
 	for order in json_data['order']:
-	    if 'item' in order and 'price' in order:
-		try:
-		    purchase = Purchase()
-		    purchase.source = team
-		    purchase.destination = team.game.gold
-		    purchase.value = int(float(order['price']) *
-					    (float(team.game.get_option('score_exchange_rate'))/100.0))
-		    # This needs to be an item object
-		    purchase.item = (order['item'] if len(order['item']) < 150 else order['item'][:150])
-		    purchase.save()
-		    api_score(team.id, 'PURCHASE', team.get_canonical_name(), purchase.amount, purchase.item)
-		    api_debug('STORE', 'Processed order of "%s" "%d" for team "%s"!'
-				% (purchase.item, purchase.amount, team.get_canonical_name()), request)
-		except ValueError:
-		    api_warning('STORE', 'Order "%s" has invalid integers for amount!!' % str(order), request)
-	    else:
-		api_warning('STORE', 'Order "%s" does not have the correct format!' % str(order), request)
+            try:
+                purchase.value += int(order['price'])
+                # This needs to be an item object
+                item = Item()
+                item.purchase = purchase
+                item.name = (order['item'] if len(order['item']) < 150 else order['item'][:150])
+                item.sid = order['id']
+                api_score(team.id, 'PURCHASE', team.get_canonical_name(), purchase.amount, purchase.item)
+                api_debug('STORE', 'Processed order of "%s" "%d" for team "%s"!'
+                            % (purchase.item, purchase.amount, team.get_canonical_name()), request)
+            except ValueError:
+                api_warning('STORE', 'Order "%s" has invalid integers for amount!!' % str(order), request)
+        purchase.save()
+        for i in purchase.items:
+            i.save()
 	return HttpResponse(status=200, content='{"result": "processed"}')
     return HttpResponseBadRequest(content='{"result": "SBE API: Not a supported method type!"}')
 

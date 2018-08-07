@@ -253,7 +253,7 @@ class Purchase(Transaction):
         verbose_name = '[Score] Purchase'
         verbose_name_plural = '[Score] Purchases'
 
-    item = ForeignKey('scorebot_db.Item', blank=True, null=True, on_delete=SET_NULL, related_name='purchases')
+    items = ForeignKey('scorebot_db.Item', blank=True, null=True, on_delete=SET_NULL, related_name='purchase')
 
     def __json__(self):
         return {
