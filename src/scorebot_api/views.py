@@ -12,7 +12,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from scorebot import General, Authentication, Jobs, HTTP_GET, HTTP_POST
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
-from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, Port, Game, Service, Content
+from scorebot_db.models import AssignedMonitor, Job, PlayerTeam, Flag, Host, Port, Game, Service, Content, Purchase
 from scorebot.constants import JOB_MESSAGE_NO_HOSTS, MESSAGE_INVALID_METHOD, MESSAGE_MISSING_FIELD, \
                                FLAG_MESSAGE_STOLEN, FLAG_MESSAGE_NOT_EXIST, FLAG_MESSAGE_HINT, TEAM_MESSAGE_TOKEN, \
                                TEAM_MESSAGE_PORT_LIST, GAME_RUNNING
@@ -145,10 +145,83 @@ def mapper(request, gid):
     return HttpResponseBadRequest(content=MESSAGE_INVALID_METHOD)
 
 
-def purchase(request):
-    pass
+@authenticate('__SYS__STORE')
+def purchase(request, team_id=None):
+    """Run a purchase.
+
+    """
+    if request.method == METHOD_GET:
+	api_debug('STORE', 'Requesting the exchange rate for Team "%s"' % team_id, request)
+	if team_id is None:
+	    api_error('STORE', 'Attempted to use Null Team ID!', request)
+	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
+	try:
+	    team = PlayerTeam.objects.get(store=int(team_id), game__status=GAME_RUNNING)
+	except ValueError:
+	    api_error('STORE', 'Attempted to use an invalid Team ID "%s"!' % str(team_id), request)
+	    return HttpResponseNotFound('{"result": "SBE API: Invalid Team ID!"}')
+	except ObjectDoesNotExist:
+	    api_error('STORE', 'Attempted to use an non-existent Team ID "%s"!' % str(team_id), request)
+	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
+	except MultipleObjectsReturned:
+	    api_error('STORE', 'Attempted to use a Team ID which returned multiple Teams!', request)
+	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
+	rate = float(team.game.get_option('score_exchange_rate'))/100.0
+	api_debug('STORE', 'The exchange rate for Team "%s" is "%.2f"!' % (team.get_canonical_name(), rate),
+		    request)
+	return JsonResponse({'rate':rate})
+    elif request.method == METHOD_POST:
+	try:
+	    decoded_data = request.body.decode('UTF-8')
+	except UnicodeDecodeError:
+	    api_error('STORE', 'Data submitted is not encoded properly!', request)
+	    return HttpResponseBadRequest(content='{"result": "SBE API: Incorrect encoding, please use UTF-8!"}')
+	try:
+	    json_data = json.loads(decoded_data)
+	except json.decoder.JSONDecodeError:
+	    api_error('STORE', 'Data submitted is not in correct JSON format!', request)
+	    return HttpResponseBadRequest(content='{"result": "SBE API: Not in a valid JSON format!"]')
+	if 'team' not in json_data or 'order' not in json_data:
+	    api_error('STORE', 'Data submitted is missing JSON fields!', request)
+	    return HttpResponseBadRequest(content='{"result": "SBE API: Not in a valid JSON format!"}')
+	try:
+	    team = PlayerTeam.objects.get(store=int(json_data['team']), game__status=GAME_RUNNING)
+	except ValueError:
+	    api_error('STORE', 'Attempted to use an invalid Team ID "%s"!' % str(team_id), request)
+	    return HttpResponseNotFound('{"result": "SBE API: Invalid Team ID!"}')
+	except ObjectDoesNotExist:
+	    api_error('STORE', 'Attempted to use an non-existent Team ID "%s"!' % str(team_id), request)
+	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
+	except MultipleObjectsReturned:
+	    api_error('STORE', 'Attempted to use a Team ID which returned multiple Teams!', request)
+	    return HttpResponseNotFound('{"result": "SBE API: Team could not be found!"}')
+	api_info('STORE', 'Attempting to add Purchase records for Team "%s".' % team.get_canonical_name(), request)
+	if not isinstance(json_data['order'], list):
+	    api_error('STORE', 'Data submitted is missing the "order" array!', request)
+	    return HttpResponseBadRequest(content='{"result": "SBE API: Not in valid JSON format!"}')
+	for order in json_data['order']:
+	    if 'item' in order and 'price' in order:
+		try:
+		    purchase = Purchase()
+		    purchase.source = team
+		    purchase.destination = team.game.gold
+		    purchase.value = int(float(order['price']) *
+					    (float(team.game.get_option('score_exchange_rate'))/100.0))
+		    # This needs to be an item object
+		    purchase.item = (order['item'] if len(order['item']) < 150 else order['item'][:150])
+		    purchase.save()
+		    api_score(team.id, 'PURCHASE', team.get_canonical_name(), purchase.amount, purchase.item)
+		    api_debug('STORE', 'Processed order of "%s" "%d" for team "%s"!'
+				% (purchase.item, purchase.amount, team.get_canonical_name()), request)
+		except ValueError:
+		    api_warning('STORE', 'Order "%s" has invalid integers for amount!!' % str(order), request)
+	    else:
+		api_warning('STORE', 'Order "%s" does not have the correct format!' % str(order), request)
+	return HttpResponse(status=200, content='{"result": "processed"}')
+    return HttpResponseBadRequest(content='{"result": "SBE API: Not a supported method type!"}')
 
 
+@authenticate('__SYS__STORE')
 def transfer(request):
     pass
 
@@ -164,7 +237,7 @@ def scoreboard(request, gid):
 
 
 @authenticate()
-def api_token_check(request):
+def token_check(request):
     try:
 	token = request.auth
     except AttributeError:
@@ -178,7 +251,7 @@ def api_token_check(request):
 
 @csrf_exempt
 @authenticate('__SYS_STORE')
-def api_new_resource(request):
+def new_resource(request):
     """Create a new monitored resource.
 
 	Requires a JSON post with the following fields:
@@ -208,7 +281,7 @@ def api_new_resource(request):
 	api_error('NEW_RESOURCE', 'Data submitted is not in correct JSON format!', request)
 	return HttpResponseBadRequest(content='{"result": "SBE API: Not in a valid JSON format!"]')
     try:
-	team = PlayerTeam.objects.get(store=int(json_data['team']), game__status=CONST_GAME_GAME_RUNNING)
+	team = PlayerTeam.objects.get(store=int(json_data['team']), game__status=GAME_RUNNING)
     except (ValueError, ObjectDoesNotExist, MultipleObjectsReturned):
 	api_error('NEW_RESOURCE', 'Attempted to use an invalid Team ID "%s"!' % str(team_id), request)
 	return HttpResponseNotFound('{"result": "SBE API: Invalid Team ID!"}')
